@@ -1,3 +1,4 @@
+
 CREATE TABLE Organisme(
    SIRET NUMBER(14,0),
    raison_sociale VARCHAR2(50) NOT NULL,
@@ -166,30 +167,6 @@ CREATE TABLE Entretien(
    FOREIGN KEY(idMachine) REFERENCES Machine(idMachine),
    FOREIGN KEY(SIRET, idGroupe, RFID) REFERENCES Tenrac(SIRET, idGroupe, RFID)
 );
-CREATE OR REPLACE TRIGGER verification_entretien
-  BEFORE INSERT ON Entretien
-  FOR EACH ROW
-  DECLARE 
-    DigniteEntretien NUMBER(1,0);
-  BEGIN
-  SELECT T.idDignite INTO DigniteEntretien
-  FROM Tenrac T
-  WHERE T.SIRET = :NEW.SIRET
-    AND T.idGroupe = :NEW.idGroupe
-    AND T.RFID = :NEW.RFID;
-  IF DigniteEntretien IS NULL THEN
-    RAISE_APPLICATION_ERROR(
-      -20001, 
-      'un membre doit avoir une dignite pour effectuer un entretien'
-    );
-  END IF;
-  EXCEPTION WHEN NO_DATA_FOUND THEN 
-    RAISE_APPLICATION_ERROR( 
-      -20002, 
-      'Membre introuvable dans TENRAC'
-    );
-END;
-/
 
 CREATE TABLE TenracOrdre(
    idGroupe NUMBER(10),
@@ -283,18 +260,164 @@ CREATE TABLE est_sauce(
    FOREIGN KEY(idMenu) REFERENCES Menu(idMenu)
 );
 
-INSERT INTO Grade(idGrade,nomGrade)VALUES (1,'Affilie');
-INSERT INTO Rang(idRang,nomRang) VALUES (1,'Novice');
-INSERT INTO Titre(idTitre,nomTitre) VALUES (1,'Philanthrope');
-INSERT INTO Dignite(idDignite,nomDignite) VALUES (1,NULL);--'Maitre'
-INSERT INTO Organisme(SIRET,raison_sociale) VALUES (1,'JESAISPAS');
-INSERT INTO Groupe(idGroupe,idRegistre) VALUES (1,1);
-INSERT INTO Tenrac(SIRET,idGroupe,RFID,nom,prenom,courriel,tel,adresse_postale,dateDeNaissance,idDignite,idGrade,idTitre,idRang)
-VALUES (1,1,1,'Bob','Boben','Bob@gmail.com',123456789,2500,
-TO_DATE('01-01-2001','DD-MM-YYYY'),NULL,1,1,1);
-INSERT INTO Entretien(idEntretien,dateE,periodicite,type,idRegistre,idMachine,SIRET,idGroupe,RFID) 
-  VALUES (1,TO_DATE('01-01-2021','DD-MM-YYYY'), 1,'CAFE',1,1,1,1,1);
-  
-  
-  
-  
+--Règle 2 : La certification des machines (L'entretien)
+
+CREATE OR REPLACE TRIGGER trg_verif_entretien
+BEFORE INSERT OR UPDATE ON Entretien
+FOR EACH ROW
+DECLARE
+    v_nomDignite VARCHAR2(50);
+BEGIN
+    SELECT d.nomDignite INTO v_nomDignite
+    FROM Tenrac t
+    JOIN Dignite d ON t.idDignite = d.idDignite
+    WHERE t.SIRET = :NEW.SIRET 
+      AND t.idGroupe = :NEW.idGroupe 
+      AND t.RFID = :NEW.RFID;
+
+    IF v_nomDignite NOT IN ('Maitre', 'Grand Chancelier', 'Grand Maitre') THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Règle 2 violée : La machine doit être certifiée par un Tenrac ayant au moins la dignité de Maître.');
+    END IF;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Erreur : Le Tenrac est introuvable ou n''a pas de dignité assignée.');
+END;
+/
+
+
+--Règle 1 : La Réunion a besoin d'un Chevalier/Dame
+
+
+CREATE OR REPLACE TRIGGER trg_verif_reunion_chevalier
+AFTER INSERT OR UPDATE ON participe
+DECLARE
+    v_reunions_invalides NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_reunions_invalides
+    FROM Reunion r
+    WHERE EXISTS (SELECT 1 FROM participe p WHERE p.adresse = r.adresse AND p.dateReunion = r.dateReunion)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM participe p
+        JOIN Tenrac t ON p.SIRET = t.SIRET AND p.idGroupe = t.idGroupe AND p.RFID = t.RFID
+        JOIN Grade g ON t.idGrade = g.idGrade
+        WHERE p.adresse = r.adresse AND p.dateReunion = r.dateReunion
+          AND g.nomGrade IN ('Chevalier/Dame', 'Grand Chevalier/Haute Dame', 'Commandeur', 'Grand Croix')
+    );
+
+    IF v_reunions_invalides > 0 THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Règle 1 violée : Une réunion avec des participants doit comporter au moins un Chevalier ou une Dame.');
+    END IF;
+END;
+/
+
+
+
+--Club
+
+CREATE OR REPLACE TRIGGER trg_xt_groupe_club
+BEFORE INSERT OR UPDATE ON TenracClub
+FOR EACH ROW
+DECLARE
+    v_count NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_count 
+    FROM TenracOrdre 
+    WHERE idGroupe = :NEW.idGroupe_1;
+    
+    IF v_count > 0 THEN
+        RAISE_APPLICATION_ERROR(-20004, 'Contrainte XT : Ce Groupe est déjà défini comme un TenracOrdre.');
+    END IF;
+END;
+/
+
+
+
+
+--Ordre
+
+CREATE OR REPLACE TRIGGER trg_xt_groupe_ordre
+BEFORE INSERT OR UPDATE ON TenracOrdre
+FOR EACH ROW
+DECLARE
+    v_count NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_count 
+    FROM TenracClub 
+    WHERE idGroupe_1 = :NEW.idGroupe;
+    
+    IF v_count > 0 THEN
+        RAISE_APPLICATION_ERROR(-20005, 'Contrainte XT : Ce Groupe est déjà défini comme un TenracClub.');
+    END IF;
+END;
+/
+
+--Création des référentiels
+INSERT INTO Organisme (SIRET, raison_sociale) VALUES (12345678901234, 'Ordre des Tenracs');
+INSERT INTO Grade (idGrade, nomGrade) VALUES (1, 'Affilie');
+INSERT INTO Grade (idGrade, nomGrade) VALUES (2, 'Chevalier/Dame');
+INSERT INTO Dignite (idDignite, nomDignite) VALUES (1, 'Maitre');
+
+-- Création des Groupes et Registres
+INSERT INTO Registre (idRegistre) VALUES (100);
+INSERT INTO Registre (idRegistre) VALUES (200);
+INSERT INTO Groupe (idGroupe, idRegistre) VALUES (10, 100);
+INSERT INTO Groupe (idGroupe, idRegistre) VALUES (20, 200);
+
+-- Création de deux Tenracs (Un "Maître/Chevalier" et un "Simple Affilié")
+
+INSERT INTO Tenrac (SIRET, idGroupe, RFID, nom, prenom, courriel, tel, adresse_postale, dateDeNaissance, idDignite, idGrade) 
+VALUES (12345678901234, 10, 1, 'Dupont', 'Jean', 'jean@tenrac.fr', 0601020304, 75001, TO_DATE('1980-01-01', 'YYYY-MM-DD'), 1, 2);
+
+
+INSERT INTO Tenrac (SIRET, idGroupe, RFID, nom, prenom, courriel, tel, adresse_postale, dateDeNaissance, idDignite, idGrade) 
+VALUES (12345678901234, 10, 2, 'Martin', 'Paul', 'paul@tenrac.fr', 0605060708, 69002, TO_DATE('1995-05-15', 'YYYY-MM-DD'), NULL, 1);
+
+-- Création du matériel et des lieux
+INSERT INTO Machine (idMachine, nom, modele) VALUES (1, 'Machine à café', 'Delonghi X1');
+INSERT INTO Restaurant (adresse, nom) VALUES ('10 Rue de la Paix', 'Le Grand Festin');
+INSERT INTO Plat (idPlat, nom) VALUES (1, 'Pates aux truffes');
+INSERT INTO Menu (idMenu, idPlat) VALUES (1, 1);
+INSERT INTO Repas (idRepas, intitule, idMenu) VALUES (1, 'Dîner de Gala', 1);
+
+-- Création de deux réunions
+INSERT INTO Reunion (adresse, dateReunion, idRepas) VALUES ('10 Rue de la Paix', TO_DATE('2026-04-01', 'YYYY-MM-DD'), 1);
+INSERT INTO Reunion (adresse, dateReunion, idRepas) VALUES ('10 Rue de la Paix', TO_DATE('2026-04-02', 'YYYY-MM-DD'), 1);
+
+/*
+-- TEST QUI RÉUSSIT : Le Tenrac 1 (qui est 'Maitre') fait l'entretien
+INSERT INTO Entretien (idEntretien, dateE, periodicite, type, idMachine, SIRET, idGroupe, RFID) 
+VALUES (1, TO_DATE('2026-03-25', 'YYYY-MM-DD'), 12, 'Révision annuelle', 1, 12345678901234, 10, 1);
+-- Résultat : 1 ligne insérée.
+
+-- TEST QUI ÉCHOUE : Le Tenrac 2 (qui n'a aucune dignité) essaie de faire l'entretien
+INSERT INTO Entretien (idEntretien, dateE, periodicite, type, idMachine, SIRET, idGroupe, RFID) 
+VALUES (2, TO_DATE('2026-03-26', 'YYYY-MM-DD'), 12, 'Réparation', 1, 12345678901234, 10, 2);
+-- Résultat attendu : ORA-20002 ou ORA-20001 (Règle 2 violée).
+
+*/
+
+/*
+-- TEST QUI RÉUSSIT : On définit le Groupe 10 comme un Club
+INSERT INTO TenracClub (idGroupe_1, nomClub) VALUES (10, 'Le Club des Étoiles');
+-- Résultat : 1 ligne insérée.
+
+-- TEST QUI ÉCHOUE : On essaie de définir le MÊME Groupe 10 comme un Ordre
+INSERT INTO TenracOrdre (idGroupe, nomOrdre) VALUES (10, 'Ordre Suprême');
+-- Résultat attendu : ORA-20004 (Contrainte XT violée).
+*/
+
+/*
+
+-- TEST QUI RÉUSSIT : On ajoute le Tenrac 1 (Chevalier) à la réunion du 1er avril
+INSERT INTO participe (SIRET, idGroupe, RFID, adresse, dateReunion) 
+VALUES (12345678901234, 10, 1, '10 Rue de la Paix', TO_DATE('2026-04-01', 'YYYY-MM-DD'));
+-- Résultat : 1 ligne insérée (La réunion est validée car Jean Dupont est Chevalier).
+
+-- TEST QUI ÉCHOUE : On ajoute UNIQUEMENT le Tenrac 2 (Affilié) à la réunion du 2 avril
+INSERT INTO participe (SIRET, idGroupe, RFID, adresse, dateReunion) 
+VALUES (12345678901234, 10, 2, '10 Rue de la Paix', TO_DATE('2026-04-02', 'YYYY-MM-DD'));
+-- Résultat attendu : ORA-20003 (Règle 1 violée : La réunion n'a aucun Chevalier).
+*/
+
+
