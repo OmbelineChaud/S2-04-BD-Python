@@ -31,28 +31,28 @@ CREATE TABLE Grade(
    idGrade NUMBER(1,0),
    nomGrade VARCHAR2(50) NOT NULL,
    PRIMARY KEY(idGrade),
-   CONSTRAINT ch_Grade_nomGrade CHECK (nomGrade IN ('Affilie', 'Sympathisant', 'Adherent', 'Chevalier/Dame', 'Grand Chevalier/Haute Dame', 'Commandeur', 'Grand Croix')
+   CONSTRAINT ch_Grade_nomGrade CHECK (nomGrade IN ('Affilie', 'Sympathisant', 'Adherent', 'Chevalier/Dame', 'Grand Chevalier/Haute Dame', 'Commandeur', 'Grand Croix'))
 );
 
 CREATE TABLE Rang(
    idRang NUMBER(1,0),
    nomRang VARCHAR2(25) NOT NULL,
    PRIMARY KEY(idRang),
-   CONSTRAINT ch_Rang_nomRang CHECK (nomRang IN ('Novice', 'Compagnon')
+   CONSTRAINT ch_Rang_nomRang CHECK (nomRang IN ('Novice', 'Compagnon'))
 );
 
 CREATE TABLE Titre(
    idTitre NUMBER(1,0),
    nomTitre VARCHAR2(50) NOT NULL,
    PRIMARY KEY(idTitre),
-   CONSTRAINT ch_Titre_nomTitre CHECK (nomTitre IN ('Philanthrope', 'Protecteur', 'Honorable')
+   CONSTRAINT ch_Titre_nomTitre CHECK (nomTitre IN ('Philanthrope', 'Protecteur', 'Honorable'))
 );
 
 CREATE TABLE Dignite(
    idDignite NUMBER(1,0),
    nomDignite VARCHAR2(50) NOT NULL,
    PRIMARY KEY(idDignite),
-   CONSTRAINT ch_Dignite_nomDignite CHECK (nomDignite IN ('Maitre', 'Grand Chancelier', 'Grand Maitre')
+   CONSTRAINT ch_Dignite_nomDignite CHECK (nomDignite IN ('Maitre', 'Grand Chancelier', 'Grand Maitre'))
 );
 
 CREATE TABLE Legume(
@@ -166,15 +166,30 @@ CREATE TABLE Entretien(
    FOREIGN KEY(idMachine) REFERENCES Machine(idMachine),
    FOREIGN KEY(SIRET, idGroupe, RFID) REFERENCES Tenrac(SIRET, idGroupe, RFID)
 );
-CREATE TRIGGER verification_entretien
-   BEFORE INSERT ON Entretien E
-   FOR EACH ROW
-   BEGIN
-   IF NOT EXISTS(
-      SELECT 1
-      FROM Tenrac T
-      WHERE T.(SIRET, idGroupe, RFID) = NEW E.(SIRET, idGroupe, RFID)
-   )
+CREATE OR REPLACE TRIGGER verification_entretien
+  BEFORE INSERT ON Entretien
+  FOR EACH ROW
+  DECLARE 
+    DigniteEntretien NUMBER(1,0);
+  BEGIN
+  SELECT T.idDignite INTO DigniteEntretien
+  FROM Tenrac T
+  WHERE T.SIRET = :NEW.SIRET
+    AND T.idGroupe = :NEW.idGroupe
+    AND T.RFID = :NEW.RFID;
+  IF DigniteEntretien IS NULL THEN
+    RAISE_APPLICATION_ERROR(
+      -20001, 
+      'un membre doit avoir une dignite pour effectuer un entretien'
+    );
+  END IF;
+  EXCEPTION WHEN NO_DATA_FOUND THEN 
+    RAISE_APPLICATION_ERROR( 
+      -20002, 
+      'Membre introuvable dans TENRAC'
+    );
+END;
+/
 
 CREATE TABLE TenracOrdre(
    idGroupe NUMBER(10),
@@ -267,3 +282,17 @@ CREATE TABLE est_sauce(
    FOREIGN KEY(nomSauce) REFERENCES Sauce(nomSauce),
    FOREIGN KEY(idMenu) REFERENCES Menu(idMenu)
 );
+
+INSERT INTO Grade(idGrade,nomGrade)VALUES (1,'Affilie');
+INSERT INTO Rang(idRang,nomRang) VALUES (1,'Novice');
+INSERT INTO Titre(idTitre,nomTitre) VALUES (1,'Philanthrope');
+INSERT INTO Dignite(idDignite,nomDignite) VALUES (1,NULL);--'Maitre'
+INSERT INTO Tenrac(SIRET,idGroupe,RFID,nom,prenom,courriel,tel,adresse_postale,dateDeNaissance,idDignite,idGrade,idTitre,idRang)
+VALUES (1,1,1,'Bob','Boben','Bob@gmail.com',123456789,2500,
+TO_DATE('01-01-2001','DD-MM-YYYY'),NULL,1,1,1);
+INSERT INTO Entretien(idEntretien,dateE,periodicite,type,idRegistre,idMachine,SIRET,idGroupe,RFID) 
+  VALUES (1,TO_DATE('01-01-2021','DD-MM-YYYY'), 1,'CAFE',1,1,1,1,1);
+  
+  
+  
+  
