@@ -165,6 +165,15 @@ CREATE TABLE Entretien(
    FOREIGN KEY(idMachine) REFERENCES Machine(idMachine),
    FOREIGN KEY(SIRET, idGroupe, RFID) REFERENCES Tenrac(SIRET, idGroupe, RFID)
 );
+CREATE TRIGGER verification_entretien
+   BEFORE INSERT ON Entretien E
+   FOR EACH ROW
+   BEGIN
+   IF NOT EXISTS(
+      SELECT 1
+      FROM Tenrac T
+      WHERE T.(SIRET, idGroupe, RFID) = NEW E.(SIRET, idGroupe, RFID)
+   )
 
 CREATE TABLE TenracOrdre(
    idGroupe NUMBER(10),
