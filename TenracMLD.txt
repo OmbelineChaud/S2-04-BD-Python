@@ -26,6 +26,6 @@ participe = (#(#SIRET, #idGroupe, RFID), #(#adresse, dateReunion));
 plat_constitue_de = (#idPlat, #nomAliment);
 utilise = (#idRepas, #idMachine);
 crois = (#(#SIRET, #idGroupe, RFID), #nomCroyance);
-allergique_a = (#(#SIRET, #idGroupe, RFID), #nomAllergie);
+allergique = (#(#SIRET, #idGroupe, RFID), #nomAllergie);
 sauce_constitue_de = (#nomAliment, #nomSauce);
 est_sauce = (#nomSauce, #idMenu);
